@@ -96,21 +96,6 @@ class AtlasProdJobBroker (JobBrokerBase):
         return 1
 
 
-    # get all T1 sites
-    def getAllT1Sites(self):
-        cloudList = self.siteMapper.getCloudList()
-        t1Sites = set()
-        for cloudName in cloudList:
-            # T1
-            t1SiteName = self.siteMapper.getCloud(cloudName)['source']
-            t1Sites.add(t1SiteName)
-            # hospital
-            if self.hospitalQueueMap.has_key(cloudName):
-                for tmpSiteName in self.hospitalQueueMap[cloudName]:
-                    t1Sites.add(tmpSiteName)
-        return list(t1Sites)
-
-
     # main
     def doBrokerage(self, taskSpec, cloudName, inputChunk, taskParamMap, hintForTB=False, siteListForTB=None, glLog=None):
         # suppress sending log
@@ -209,8 +194,7 @@ class AtlasProdJobBroker (JobBrokerBase):
             sitesShareSeT1 = DataServiceUtils.getSitesShareDDM(self.siteMapper,t1Sites[0])
         else:
             sitesShareSeT1 = []
-        # all T1
-        allT1Sites = self.getAllT1Sites()
+
         # core count
         if inputChunk.isMerging and taskSpec.mergeCoreCount != None:
             taskCoreCount = taskSpec.mergeCoreCount
