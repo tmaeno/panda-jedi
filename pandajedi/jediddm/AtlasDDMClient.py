@@ -366,14 +366,13 @@ class AtlasDDMClient(DDMClientBase):
 
             # get the file locations from Rucio
             tmp_log.debug('lookup file replicas in Rucio for RSEs: {0}'.format(rse_list))
-            tmp_status, rucio_lfn_to_rse_map = self.jedi_list_replicas(file_map, rse_list, scopes=scope_map)
+            tmp_status, rucio_lfn_to_rse_map, rucio_lfn_to_all_rse_map = self.jedi_list_replicas(file_map, rse_list, scopes=scope_map)
             tmp_log.debug('lookup file replicas return status: {0}'.format(str(tmp_status)))
             if tmp_status != self.SC_SUCCEEDED:
                 raise RuntimeError, rucio_lfn_to_rse_map
 
             # initialize the return map and add complete/cached replicas
             return_map = {}
-            checked_dst = set()
             for site_name, tmp_endpoints in site_endpoint_map.iteritems():
 
                 return_map.setdefault(site_name, {'localdisk': [], 'localtape': [], 'cache': [], 'remote': []})
@@ -390,7 +389,6 @@ class AtlasDDMClient(DDMClientBase):
                         if complete_replica_map.has_key(tmp_endpoint):
                             storage_type = complete_replica_map[tmp_endpoint]
                             return_map[site_name][storage_type] += dataset_spec.Files
-                            checked_dst.add(site_name)
 
             # loop over all available LFNs
             available_lfns = rucio_lfn_to_rse_map.keys()
@@ -404,8 +402,26 @@ class AtlasDDMClient(DDMClientBase):
                             storage_type = endpoint_storagetype_map[endpoint]
                             if not tmp_filespec in return_map[site][storage_type]:
                                 return_map[site][storage_type] += tmp_filespec_list
-                            checked_dst.add(site)
                             break
+
+            # special case: queues behind a cache infrastructure that can get the input magically from RSE
+            available_lfns = rucio_lfn_to_all_rse_map.keys()
+            available_lfns.sort()
+            for site_name, tmp_endpoints in site_endpoint_map.iteritems():
+                tmp_site_spec = site_mapper.getSite(site_name)
+                if 'cacheSite' in tmp_site_spec.catchall:
+                    # complete replicas
+                    for tmp_endpoint in complete_replica_map:
+                        storage_type = complete_replica_map[tmp_endpoint]
+                        return_map[site_name][storage_type] += dataset_spec.Files
+
+                    # available LFNs
+                    for tmp_lfn in available_lfns:
+                        tmp_filespec_list = lfn_filespec_map[tmp_lfn]
+                        tmp_filespec = lfn_filespec_map[tmp_lfn][0]
+                        storage_type = endpoint_storagetype_map[endpoint]
+                        if not tmp_filespec in return_map[site][storage_type]:
+                            return_map[site][storage_type] += tmp_filespec_list
 
             # aggregate all types of storage types into the 'all' key
             for site, storage_type_files in return_map.iteritems():
@@ -442,6 +458,7 @@ class AtlasDDMClient(DDMClientBase):
             i_guid = 0
             max_guid = 1000 # do 1000 guids in each Rucio call
             lfn_to_rses_map = {}
+            lfn_to_all_rses_map = {}
             dids = []
 
             for guid, lfn in files.iteritems():
@@ -457,8 +474,10 @@ class AtlasDDMClient(DDMClientBase):
                             # rse selection
                             if tmp_RSE in storages:
                                 rses.append(tmp_RSE)
+                            all_rses.append(tmp_RSE)
 
                         lfn_to_rses_map[tmp_LFN] = rses
+                        lfn_to_all_rses_map[tmp_LFN] = rses
 
                     # reset the dids list for the next bulk for Rucio
                     dids = []
@@ -466,7 +485,7 @@ class AtlasDDMClient(DDMClientBase):
             err_type, err_value = sys.exc_info()[:2]
             return self.SC_FAILED, "file lookup failed with {0}:{1} {2}".format(err_type, err_value, traceback.format_exc())
 
-        return self.SC_SUCCEEDED, lfn_to_rses_map
+        return self.SC_SUCCEEDED, lfn_to_rses_map, lfn_to_all_rses_map
 
     # get dataset metadata
     def getDatasetMetaData(self,datasetName):
@@ -1088,7 +1107,7 @@ class AtlasDDMClient(DDMClientBase):
 
             # get SURLs
             seList = datasetReplicaMap.keys()
-            tmpStat, tmpRetMap = self.jedi_list_replicas(lfnMap, seList, scopes=scopeMap)
+            tmpStat, tmpRetMap, tmpRetAllMap = self.jedi_list_replicas(lfnMap, seList, scopes=scopeMap)
             if tmpStat != self.SC_SUCCEEDED:
                 tmpLog.error('failed to get SURLs with {0}'.format(tmpRetMap))
                 return tmpStat,tmpRetMap
